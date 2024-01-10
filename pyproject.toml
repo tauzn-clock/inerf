@@ -10,4 +10,4 @@ include = ["inerf*"]
 
 # register the entry point of your new method here:
 [project.entry-points.'nerfstudio.method_configs']
-method-template = 'inerf.inerf_config:inerf_method'
+inerf = 'inerf.inerf_config:inerf_method'

@@ -15,27 +15,27 @@ from nerfstudio.data.datamanagers.base_datamanager import (
 
 
 @dataclass
-class TemplateDataManagerConfig(VanillaDataManagerConfig):
+class INerfDataManagerConfig(VanillaDataManagerConfig):
     """Template DataManager Config
 
     Add your custom datamanager config parameters here.
     """
 
-    _target: Type = field(default_factory=lambda: TemplateDataManager)
+    _target: Type = field(default_factory=lambda: INerfDataManager)
 
 
-class TemplateDataManager(VanillaDataManager):
+class INerfDataManager(VanillaDataManager):
     """Template DataManager
 
     Args:
         config: the DataManagerConfig used to instantiate class
     """
 
-    config: TemplateDataManagerConfig
+    config: INerfDataManagerConfig
 
     def __init__(
         self,
-        config: TemplateDataManagerConfig,
+        config: INerfDataManagerConfig,
         device: Union[torch.device, str] = "cpu",
         test_mode: Literal["test", "val", "inference"] = "val",
         world_size: int = 1,

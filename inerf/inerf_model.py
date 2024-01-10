@@ -11,19 +11,19 @@ from nerfstudio.models.base_model import Model, ModelConfig  # for custom Model
 
 
 @dataclass
-class TemplateModelConfig(NerfactoModelConfig):
+class INerfModelConfig(NerfactoModelConfig):
     """Template Model Configuration.
 
     Add your custom model config parameters here.
     """
 
-    _target: Type = field(default_factory=lambda: TemplateModel)
+    _target: Type = field(default_factory=lambda: INerfModel)
+    
 
-
-class TemplateModel(NerfactoModel):
+class INerfModel(NerfactoModel):
     """Template Model."""
 
-    config: TemplateModelConfig
+    config: INerfModelConfig
 
     def populate_modules(self):
         super().populate_modules()

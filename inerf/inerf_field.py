@@ -13,7 +13,7 @@ from nerfstudio.fields.nerfacto_field import NerfactoField  # for subclassing Ne
 from nerfstudio.fields.base_field import Field  # for custom Field
 
 
-class TemplateNerfField(NerfactoField):
+class INerfField(NerfactoField):
     """Template Field
 
     Args:
