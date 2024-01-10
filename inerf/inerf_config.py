@@ -6,11 +6,11 @@ Define your custom method here that registers with Nerfstudio CLI.
 
 from __future__ import annotations
 
-from method_template.template_datamanager import (
+from inerf.template_datamanager import (
     TemplateDataManagerConfig,
 )
-from method_template.template_model import TemplateModelConfig
-from method_template.template_pipeline import (
+from inerf.template_model import TemplateModelConfig
+from inerf.template_pipeline import (
     TemplatePipelineConfig,
 )
 from nerfstudio.configs.base_config import ViewerConfig
@@ -23,9 +23,9 @@ from nerfstudio.engine.trainer import TrainerConfig
 from nerfstudio.plugins.types import MethodSpecification
 
 
-method_template = MethodSpecification(
+inerf_method = MethodSpecification(
     config=TrainerConfig(
-        method_name="method-template",  # TODO: rename to your own model
+        method_name="inerf",  # TODO: rename to your own model
         steps_per_eval_batch=500,
         steps_per_save=2000,
         max_num_iterations=30000,
