@@ -107,14 +107,14 @@ class INerfTrainer(Trainer):
             )
         )
 
-    def train(self) -> None:
+    def train(self, iteration: int) -> None:
         """Train the model."""
         assert self.pipeline.datamanager.train_dataset is not None, "Missing DatsetInputs"
 
         with TimeWriter(writer, EventName.TOTAL_TRAIN_TIME):
             num_iterations = self.config.max_num_iterations
             step = 0
-            for step in range(2000):
+            for step in range(iteration):
                 while self.training_state == "paused":
                     time.sleep(0.01)
                 with self.train_lock:
