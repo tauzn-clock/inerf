@@ -107,65 +107,6 @@ class INerfTrainer(Trainer):
             )
         )
 
-    def train(self, iteration: int) -> None:
-        """Train the model."""
-        assert self.pipeline.datamanager.train_dataset is not None, "Missing DatsetInputs"
-
-        with TimeWriter(writer, EventName.TOTAL_TRAIN_TIME):
-            num_iterations = self.config.max_num_iterations
-            step = 0
-            for step in range(iteration):
-                while self.training_state == "paused":
-                    time.sleep(0.01)
-                with self.train_lock:
-                    with TimeWriter(writer, EventName.ITER_TRAIN_TIME, step=step) as train_t:
-                        self.pipeline.train()
-
-                        # training callbacks before the training iteration
-                        for callback in self.callbacks:
-                            callback.run_callback_at_location(
-                                step, location=TrainingCallbackLocation.BEFORE_TRAIN_ITERATION
-                            )
-
-                        # time the forward pass
-                        loss, loss_dict, metrics_dict = self.train_iteration(step)
-                        #print(loss, loss_dict, metrics_dict)
-
-                        # training callbacks after the training iteration
-                        for callback in self.callbacks:
-                            callback.run_callback_at_location(
-                                step, location=TrainingCallbackLocation.AFTER_TRAIN_ITERATION
-                            )
-
-                #print(self.pipeline.model.camera_optimizer.num_cameras)
-
-                # a batch of train rays
-                if step_check(step, self.config.logging.steps_per_log, run_at_zero=True):
-                    writer.put_scalar(name="Train Loss", scalar=loss, step=step)
-                    writer.put_dict(name="Train Loss Dict", scalar_dict=loss_dict, step=step)
-                    writer.put_dict(name="Train Metrics Dict", scalar_dict=metrics_dict, step=step)
-                    # The actual memory allocated by Pytorch. This is likely less than the amount
-                    # shown in nvidia-smi since some unused memory can be held by the caching
-                    # allocator and some context needs to be created on GPU. See Memory management
-                    # (https://pytorch.org/docs/stable/notes/cuda.html#cuda-memory-management)
-                    # for more details about GPU memory management.
-                    writer.put_scalar(
-                        name="GPU Memory (MB)", scalar=torch.cuda.max_memory_allocated() / (1024**2), step=step
-                    )
-
-                # Do not perform evaluation if there are no validation images
-                if self.pipeline.datamanager.eval_dataset:
-                    self.eval_iteration(step)
-
-                if step_check(step, self.config.steps_per_save):
-                    self.save_checkpoint(step)
-
-                writer.write_out_storage()
-
-        # after train end callbacks
-        for callback in self.callbacks:
-            callback.run_callback_at_location(step=step, location=TrainingCallbackLocation.AFTER_TRAIN)
-
     @profiler.time_function
     def train_iteration(self, step: int) -> TRAIN_INTERATION_OUTPUT:
         """Run one iteration with a batch of inputs. Returns dictionary of model losses.
@@ -173,10 +114,8 @@ class INerfTrainer(Trainer):
         Args:
             step: Current training step.
         """
-        needs_zero = [
-            group for group in self.optimizers.parameters.keys() if step % self.gradient_accumulation_steps[group] == 0
-        ]
-        needs_zero = ["camera_opt"]
+
+        needs_zero = ["camera_opt"] #Updates only the camaera optimizer
         self.optimizers.zero_grad_some(needs_zero)
 
         cpu_or_cuda_str: str = self.device.split(":")[0]
@@ -187,12 +126,7 @@ class INerfTrainer(Trainer):
             loss = functools.reduce(torch.add, loss_dict.values())
         self.grad_scaler.scale(loss).backward()  # type: ignore
 
-        needs_step = [
-            group
-            for group in self.optimizers.parameters.keys()
-            if step % self.gradient_accumulation_steps[group] == self.gradient_accumulation_steps[group] - 1
-        ]
-        needs_step = ["camera_opt"]
+        needs_step = ["camera_opt"] #Updates only the camaera optimizer
         self.optimizers.optimizer_scaler_step_some(self.grad_scaler, needs_step)
 
         if self.config.log_gradients:
