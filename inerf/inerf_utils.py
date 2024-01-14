@@ -98,8 +98,8 @@ def load_eval_image_into_pipeline(pipeline, eval_path):
     
     custom_cameras = pipeline.datamanager.train_dataparser_outputs.cameras
     custom_cameras.camera_to_worlds = transform_original_space_to_pose(camera_to_worlds,
-                                                                        custom_train_dataparser_outputs.dataparser_transform,
-                                                                        custom_train_dataparser_outputs.dataparser_scale,
+                                                                        pipeline.datamanager.train_dataparser_outputs.dataparser_transform,
+                                                                        pipeline.datamanager.train_dataparser_outputs.dataparser_scale,
                                                                         "opengl")
     custom_cameras.fx = fx
     custom_cameras.fy = fy
@@ -109,11 +109,11 @@ def load_eval_image_into_pipeline(pipeline, eval_path):
     custom_cameras.height = height
     custom_cameras.width = width
     custom_cameras.camera_type = camera_type
-    custom_cameras.camera_to_worlds = camera_to_worlds
     custom_train_dataparser_outputs.cameras = custom_cameras
         
     pipeline.datamanager.train_dataparser_outputs = custom_train_dataparser_outputs
     pipeline.datamanager.train_dataset = pipeline.datamanager.create_train_dataset()
     pipeline.datamanager.setup_train()
+    
     
     return pipeline
