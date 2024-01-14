@@ -2,6 +2,8 @@ import torch
 from torch import tensor
 import numpy as np
 from copy import deepcopy
+from pathlib import Path
+import os
 from nerfstudio.data.dataparsers.base_dataparser import transform_poses_to_original_space
 from plane_nerf.plane_nerf_utils import transform_original_space_to_pose
 
@@ -63,11 +65,13 @@ def get_corrected_pose(trainer):
 
     return corrected_pose
 
-def eval_image(pipeline, transforms):
+def eval_image(pipeline, transforms, eval_path):
     
     data = transforms["frames"]
     
-    custom_train_dataparser_outputs = deepcopy(pipeline.datamanager.train_dataparser_outputs)
+    print(pipeline.datamanager.train_dataparser_outputs.image_filenames)
+    
+    custom_train_dataparser_outputs = pipeline.datamanager.train_dataparser_outputs
     custom_train_dataparser_outputs.image_filenames = []
     custom_train_dataparser_outputs.mask_filenames = []
     
@@ -82,12 +86,12 @@ def eval_image(pipeline, transforms):
     camera_type = torch.stack([pipeline.datamanager.train_dataparser_outputs.cameras.camera_type[0]]*len(data),0)
     
     for i in range(len(data)):
-        custom_train_dataparser_outputs.image_filenames.append(data[i]["file_path"])
-        custom_train_dataparser_outputs.mask_filenames.append(data[i]["mask_path"])
+        custom_train_dataparser_outputs.image_filenames.append(Path(os.path.join(eval_path,data[i]["file_path"])).as_posix())
+        custom_train_dataparser_outputs.mask_filenames.append(Path(os.path.join(eval_path,data[i]["mask_path"])).as_posix())
         tf = np.asarray(data[i]["transform_matrix"])
         tf = tf[:3, :]
         camera_to_worlds = torch.cat([camera_to_worlds, tensor([tf]).float()], 0)   
-
+    
     custom_cameras = pipeline.datamanager.train_dataparser_outputs.cameras
     custom_cameras.camera_to_worlds = transform_original_space_to_pose(camera_to_worlds,
                                                                         custom_train_dataparser_outputs.dataparser_transform,
