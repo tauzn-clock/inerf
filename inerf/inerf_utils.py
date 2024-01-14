@@ -1,5 +1,9 @@
 import torch
+from torch import tensor
+import numpy as np
+from copy import deepcopy
 from nerfstudio.data.dataparsers.base_dataparser import transform_poses_to_original_space
+from plane_nerf.plane_nerf_utils import transform_original_space_to_pose
 
 def correct_pose(given_pose, correction):
     """Correct the given pose by the correction.
@@ -58,3 +62,48 @@ def get_corrected_pose(trainer):
     )
 
     return corrected_pose
+
+def eval_image(pipeline, transforms):
+    
+    data = transforms["frames"]
+    
+    custom_train_dataparser_outputs = deepcopy(pipeline.datamanager.train_dataparser_outputs)
+    custom_train_dataparser_outputs.image_filenames = []
+    custom_train_dataparser_outputs.mask_filenames = []
+    
+    camera_to_worlds = tensor([]).float()
+    fx = torch.stack([pipeline.datamanager.train_dataparser_outputs.cameras.fx[0]]*len(data),0)
+    fy = torch.stack([pipeline.datamanager.train_dataparser_outputs.cameras.fy[0]]*len(data),0)
+    cx = torch.stack([pipeline.datamanager.train_dataparser_outputs.cameras.cx[0]]*len(data),0)
+    cy = torch.stack([pipeline.datamanager.train_dataparser_outputs.cameras.cy[0]]*len(data),0)
+    distortion_params = torch.stack([pipeline.datamanager.train_dataparser_outputs.cameras.distortion_params[0]]*len(data),0)
+    height = torch.stack([pipeline.datamanager.train_dataparser_outputs.cameras.height[0]]*len(data),0)
+    width = torch.stack([pipeline.datamanager.train_dataparser_outputs.cameras.width[0]]*len(data),0)
+    camera_type = torch.stack([pipeline.datamanager.train_dataparser_outputs.cameras.camera_type[0]]*len(data),0)
+    
+    for i in range(len(data)):
+        custom_train_dataparser_outputs.image_filenames.append(data[i]["file_path"])
+        custom_train_dataparser_outputs.mask_filenames.append(data[i]["mask_path"])
+        tf = np.asarray(data[i]["transform_matrix"])
+        tf = tf[:3, :]
+        camera_to_worlds = torch.cat([camera_to_worlds, tensor([tf]).float()], 0)   
+
+    custom_cameras = pipeline.datamanager.train_dataparser_outputs.cameras
+    custom_cameras.camera_to_worlds = transform_original_space_to_pose(camera_to_worlds,
+                                                                        custom_train_dataparser_outputs.dataparser_transform,
+                                                                        custom_train_dataparser_outputs.dataparser_scale,
+                                                                        "opengl")
+    custom_cameras.fx = fx
+    custom_cameras.fy = fy
+    custom_cameras.cx = cx
+    custom_cameras.cy = cy
+    custom_cameras.distortion_params = distortion_params
+    custom_cameras.height = height
+    custom_cameras.width = width
+    custom_cameras.camera_type = camera_type
+    custom_cameras.camera_to_worlds = camera_to_worlds
+    custom_train_dataparser_outputs.cameras = custom_cameras
+        
+    pipeline.datamanager.train_dataparser_outputs = custom_train_dataparser_outputs
+    pipeline.datamanager.train_dataset = pipeline.datamanager.create_train_dataset()
+    pipeline.datamanager.setup_train()

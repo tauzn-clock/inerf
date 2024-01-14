@@ -108,13 +108,15 @@ class INerfTrainer(Trainer):
         )
 
     @profiler.time_function
-    def train_iteration(self, step: int) -> TRAIN_INTERATION_OUTPUT:
+    def train_iteration_inerf(self, step: int, optimizer_lr: Optional[Float] = None) -> TRAIN_INTERATION_OUTPUT:
         """Run one iteration with a batch of inputs. Returns dictionary of model losses.
 
         Args:
             step: Current training step.
         """
 
+        self.pipeline.train()
+        
         needs_zero = ["camera_opt"] #Updates only the camaera optimizer
         self.optimizers.zero_grad_some(needs_zero)
 
@@ -127,6 +129,8 @@ class INerfTrainer(Trainer):
         self.grad_scaler.scale(loss).backward()  # type: ignore
 
         needs_step = ["camera_opt"] #Updates only the camaera optimizer
+        if optimizer_lr is not None:
+            self.optimizers.optimizers["camera_opt"].param_groups[0]['lr'] = optimizer_lr
         self.optimizers.optimizer_scaler_step_some(self.grad_scaler, needs_step)
 
         if self.config.log_gradients:
