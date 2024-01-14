@@ -4,6 +4,7 @@ import numpy as np
 from copy import deepcopy
 from pathlib import Path
 import os
+import json
 from nerfstudio.data.dataparsers.base_dataparser import transform_poses_to_original_space
 from plane_nerf.plane_nerf_utils import transform_original_space_to_pose
 
@@ -65,12 +66,15 @@ def get_corrected_pose(trainer):
 
     return corrected_pose
 
-def eval_image(pipeline, transforms, eval_path):
+def load_eval_image_into_pipeline(pipeline, eval_path):
+    
+    TRANSFORM_PATH = os.path.join(eval_path, "transforms.json")
+    with open(TRANSFORM_PATH) as f:
+        transforms = json.load(f)
+
     
     data = transforms["frames"]
-    
-    print(pipeline.datamanager.train_dataparser_outputs.image_filenames)
-    
+        
     custom_train_dataparser_outputs = pipeline.datamanager.train_dataparser_outputs
     custom_train_dataparser_outputs.image_filenames = []
     custom_train_dataparser_outputs.mask_filenames = []
@@ -111,3 +115,5 @@ def eval_image(pipeline, transforms, eval_path):
     pipeline.datamanager.train_dataparser_outputs = custom_train_dataparser_outputs
     pipeline.datamanager.train_dataset = pipeline.datamanager.create_train_dataset()
     pipeline.datamanager.setup_train()
+    
+    return pipeline
