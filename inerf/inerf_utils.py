@@ -66,7 +66,7 @@ def get_corrected_pose(trainer):
 
     return corrected_pose
 
-def load_eval_image_into_pipeline(pipeline, eval_path):
+def load_eval_image_into_pipeline(pipeline, eval_path, starting_pose = None):
     
     TRANSFORM_PATH = os.path.join(eval_path, "transforms.json")
     with open(TRANSFORM_PATH) as f:
@@ -92,7 +92,10 @@ def load_eval_image_into_pipeline(pipeline, eval_path):
     for i in range(len(data)):
         custom_train_dataparser_outputs.image_filenames.append(Path(os.path.join(eval_path,data[i]["file_path"])).as_posix())
         custom_train_dataparser_outputs.mask_filenames.append(Path(os.path.join(eval_path,data[i]["mask_path"])).as_posix())
-        tf = np.asarray(data[i]["transform_matrix"])
+        if starting_pose is None:
+            tf = np.asarray(data[i]["transform_matrix"])
+        else:
+            tf = starting_pose
         tf = tf[:3, :]
         camera_to_worlds = torch.cat([camera_to_worlds, tensor([tf]).float()], 0)   
     
@@ -117,3 +120,63 @@ def load_eval_image_into_pipeline(pipeline, eval_path):
     
     
     return pipeline
+
+
+def get_relative_pose(ground_truth_poses, target_poses):
+    """Get the relative pose.
+
+    Args:
+        ground_truth_poses: The ground truth poses.
+        target_poses: The target poses.
+
+    Returns:
+        The relative pose.
+    """
+    
+    dtype = ground_truth_poses.dtype
+    device = ground_truth_poses.device
+    
+    ground_truth_4x4 = torch.cat(
+        (
+            ground_truth_poses,
+            torch.tensor([[[0, 0, 0, 1]]], dtype = dtype, device = device).repeat_interleave(len(ground_truth_poses), 0),
+        ),
+        1,
+    )
+
+    R_inv = target_poses[:, :3, :3].transpose(1,2)
+    t_inv = torch.matmul(target_poses[:, :3, :3].transpose(1,2), -target_poses[:, :3, 3].unsqueeze(-1))
+    # Concat R_inv and t_inv   
+    target_4x4 = torch.cat([R_inv, t_inv], dim=2)
+
+    target_4x4 = torch.cat(
+        (
+            target_4x4,
+            torch.tensor([[[0, 0, 0, 1]]], dtype = dtype, device = device).repeat_interleave(len(target_poses), 0),
+        ),
+        1, 
+    )
+    
+    relative_pose = torch.matmul(ground_truth_4x4, target_4x4)
+    
+    return relative_pose
+
+def get_absolute_diff_for_pose(pose):
+    """Get the absolute difference for the pose.
+
+    Args:
+        pose: The pose.
+
+    Returns:
+        The absolute difference for the pose.
+    """
+
+    translation = pose[:, :3, 3]
+    rotation = pose[:, :3, :3]
+    
+    translation_diff = torch.norm(translation, dim=1)
+    
+    trace = rotation.diagonal(offset=0, dim1=-1, dim2=-2).sum(-1)
+    angle_rot = torch.acos((trace- 1) / 2)
+
+    return translation_diff, angle_rot
