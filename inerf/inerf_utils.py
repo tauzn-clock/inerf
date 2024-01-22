@@ -66,9 +66,11 @@ def get_corrected_pose(trainer):
 
     return corrected_pose
 
-def load_eval_image_into_pipeline(pipeline, eval_path, starting_pose = None):
+def load_eval_image_into_pipeline(pipeline, eval_path, transform_file=None, starting_pose=None):
     
     TRANSFORM_PATH = os.path.join(eval_path, "transforms.json")
+    if transform_file is not None:
+        TRANSFORM_PATH = os.path.join(eval_path, transform_file)
     with open(TRANSFORM_PATH) as f:
         transforms = json.load(f)
 
@@ -95,7 +97,7 @@ def load_eval_image_into_pipeline(pipeline, eval_path, starting_pose = None):
         if starting_pose is None:
             tf = np.asarray(data[i]["transform_matrix"])
         else:
-            tf = starting_pose
+            tf = starting_pose[i]
         tf = tf[:3, :]
         camera_to_worlds = torch.cat([camera_to_worlds, tensor([tf]).float()], 0)   
     

@@ -51,34 +51,8 @@ class INerfTrainer(Trainer):
     pipeline: VanillaPipeline
     optimizers: Optimizers
     callbacks: List[TrainingCallback]
-
-    def __init__(self, config: TrainerConfig, local_rank: int = 0, world_size: int = 1) -> None:
-        self.train_lock = Lock()
-        self.config = config
-        self.local_rank = local_rank
-        self.world_size = world_size
-        self.device: TORCH_DEVICE = config.machine.device_type
-        if self.device == "cuda":
-            self.device += f":{local_rank}"
-        self.mixed_precision: bool = self.config.mixed_precision
-        self.use_grad_scaler: bool = self.mixed_precision or self.config.use_grad_scaler
-        self.training_state: Literal["training", "paused", "completed"] = "training"
-        self.gradient_accumulation_steps: DefaultDict = defaultdict(lambda: 1)
-        self.gradient_accumulation_steps.update(self.config.gradient_accumulation_steps)
-
-        if self.device == "cpu":
-            self.mixed_precision = False
-            CONSOLE.print("Mixed precision is disabled for CPU training.")
-        self._start_step: int = 0
-        # optimizers
-        self.grad_scaler = GradScaler(enabled=self.use_grad_scaler)
-
-        self.base_dir: Path = config.get_base_dir()
-        # directory to save checkpoints
-        self.checkpoint_dir: Path = config.get_checkpoint_dir()
-        self.viewer_state = None
-
-    def setup(self, test_mode: Literal["test", "val", "inference"] = "val") -> None:
+    
+    def setup_inerf(self, num_frames: int) -> None:        
         """Setup the Trainer by calling other setup functions.
 
         Args:
@@ -117,7 +91,7 @@ class INerfTrainer(Trainer):
 
         self.pipeline.train()
         
-        needs_zero = ["camera_opt"] #Updates only the camaera optimizer
+        needs_zero = ["camera_opt"] #Updates only the camera optimizer
         self.optimizers.zero_grad_some(needs_zero)
 
         cpu_or_cuda_str: str = self.device.split(":")[0]
@@ -128,21 +102,10 @@ class INerfTrainer(Trainer):
             loss = functools.reduce(torch.add, loss_dict.values())
         self.grad_scaler.scale(loss).backward()  # type: ignore
 
-        needs_step = ["camera_opt"] #Updates only the camaera optimizer
+        needs_step = ["camera_opt"] #Updates only the camera optimizer
         if optimizer_lr is not None:
             self.optimizers.optimizers["camera_opt"].param_groups[0]['lr'] = optimizer_lr
         self.optimizers.optimizer_scaler_step_some(self.grad_scaler, needs_step)
-
-        if self.config.log_gradients:
-            total_grad = 0
-            for tag, value in self.pipeline.model.named_parameters():
-                assert tag != "Total"
-                if value.grad is not None:
-                    grad = value.grad.norm()
-                    metrics_dict[f"Gradients/{tag}"] = grad  # type: ignore
-                    total_grad += grad
-
-            metrics_dict["Gradients/Total"] = cast(torch.Tensor, total_grad)  # type: ignore
 
         scale = self.grad_scaler.get_scale()
         self.grad_scaler.update()
