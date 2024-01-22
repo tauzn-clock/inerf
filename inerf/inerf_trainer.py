@@ -52,7 +52,7 @@ class INerfTrainer(Trainer):
     optimizers: Optimizers
     callbacks: List[TrainingCallback]
     
-    def setup_inerf(self, num_frames: int) -> None:        
+    def setup_inerf(self, pipeline ):        
         """Setup the Trainer by calling other setup functions.
 
         Args:
@@ -69,9 +69,11 @@ class INerfTrainer(Trainer):
         #     grad_scaler=self.grad_scaler,
         # )
         # print(self.pipeline)
+        
+        self.pipeline = pipeline
         self.optimizers = self.setup_optimizers()
 
-        self._load_checkpoint()
+        self._load_checkpoint_inerf()
 
         self.callbacks = self.pipeline.get_training_callbacks(
             TrainingCallbackAttributes(
@@ -80,6 +82,48 @@ class INerfTrainer(Trainer):
                 pipeline=self.pipeline,
             )
         )
+        
+        
+    def _load_checkpoint_inerf(self) -> None:
+        """Helper function to load pipeline and optimizer from prespecified checkpoint"""
+        load_dir = self.config.load_dir
+        load_checkpoint = self.config.load_checkpoint
+        if load_dir is not None:
+            load_step = self.config.load_step
+            if load_step is None:
+                print("Loading latest Nerfstudio checkpoint from load_dir...")
+                # NOTE: this is specific to the checkpoint name format
+                load_step = sorted(int(x[x.find("-") + 1 : x.find(".")]) for x in os.listdir(load_dir))[-1]
+            load_path: Path = load_dir / f"step-{load_step:09d}.ckpt"
+            assert load_path.exists(), f"Checkpoint {load_path} does not exist"
+            loaded_state = torch.load(load_path, map_location="cpu")
+            self.loaded_state = loaded_state
+
+            loaded_state["step"] = 0
+            loaded_state["optimizers"].pop("camera_opt", None)
+            loaded_state["pipeline"].pop("_model.camera_optimizer.pose_adjustment", None)
+
+            self._start_step = loaded_state["step"] + 1
+            # load the checkpoints for pipeline, optimizers, and gradient scalar
+            self.pipeline.load_pipeline(loaded_state["pipeline"], loaded_state["step"])
+            self.optimizers.load_optimizers(loaded_state["optimizers"])
+            if "schedulers" in loaded_state and self.config.load_scheduler:
+                self.optimizers.load_schedulers(loaded_state["schedulers"])
+            self.grad_scaler.load_state_dict(loaded_state["scalers"])
+            CONSOLE.print(f"Done loading Nerfstudio checkpoint from {load_path}")
+        elif load_checkpoint is not None:
+            assert load_checkpoint.exists(), f"Checkpoint {load_checkpoint} does not exist"
+            loaded_state = torch.load(load_checkpoint, map_location="cpu")
+            self._start_step = loaded_state["step"] + 1
+            # load the checkpoints for pipeline, optimizers, and gradient scalar
+            self.pipeline.load_pipeline(loaded_state["pipeline"], loaded_state["step"])
+            self.optimizers.load_optimizers(loaded_state["optimizers"])
+            if "schedulers" in loaded_state and self.config.load_scheduler:
+                self.optimizers.load_schedulers(loaded_state["schedulers"])
+            self.grad_scaler.load_state_dict(loaded_state["scalers"])
+            CONSOLE.print(f"Done loading Nerfstudio checkpoint from {load_checkpoint}")
+        else:
+            CONSOLE.print("No Nerfstudio checkpoint to load, so training from scratch.")
 
     @profiler.time_function
     def train_iteration_inerf(self, step: int, optimizer_lr: Optional[Float] = None) -> TRAIN_INTERATION_OUTPUT:
@@ -100,6 +144,7 @@ class INerfTrainer(Trainer):
         with torch.autocast(device_type=cpu_or_cuda_str, enabled=self.mixed_precision):
             _, loss_dict, metrics_dict = self.pipeline.get_train_loss_dict(step=step)
             loss = functools.reduce(torch.add, loss_dict.values())
+        #print(loss, loss_dict, metrics_dict)
         self.grad_scaler.scale(loss).backward()  # type: ignore
 
         needs_step = ["camera_opt"] #Updates only the camera optimizer
