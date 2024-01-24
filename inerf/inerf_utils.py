@@ -182,3 +182,13 @@ def get_absolute_diff_for_pose(pose):
     angle_rot = torch.acos((trace- 1) / 2)
 
     return translation_diff, angle_rot
+
+def get_image(pipeline, pose):
+    camera = pipeline.datamanager.train_dataparser_outputs.cameras
+    camera.camera = transform_original_space_to_pose(pose,
+                                            pipeline.datamanager.train_dataparser_outputs.dataparser_transform,
+                                            pipeline.datamanager.train_dataparser_outputs.dataparser_scale,
+                                            "opengl")
+    outputs = pipeline.model.get_outputs_for_camera(camera=camera)    
+    return outputs
+                                           
