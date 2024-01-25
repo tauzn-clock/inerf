@@ -5,6 +5,7 @@ from copy import deepcopy
 from pathlib import Path
 import os
 import json
+import cv2
 from nerfstudio.data.dataparsers.base_dataparser import transform_poses_to_original_space
 from plane_nerf.plane_nerf_utils import transform_original_space_to_pose
 
@@ -80,6 +81,7 @@ def load_eval_image_into_pipeline(pipeline, eval_path, transform_file=None, star
     custom_train_dataparser_outputs = pipeline.datamanager.train_dataparser_outputs
     custom_train_dataparser_outputs.image_filenames = []
     custom_train_dataparser_outputs.mask_filenames = []
+    custom_train_dataparser_outputs.mask_midpt = []
     
     camera_to_worlds = tensor([]).float()
     fx = torch.stack([pipeline.datamanager.train_dataparser_outputs.cameras.fx[0]]*len(data),0)
@@ -94,6 +96,8 @@ def load_eval_image_into_pipeline(pipeline, eval_path, transform_file=None, star
     for i in range(len(data)):
         custom_train_dataparser_outputs.image_filenames.append(Path(os.path.join(eval_path,data[i]["file_path"])).as_posix())
         custom_train_dataparser_outputs.mask_filenames.append(Path(os.path.join(eval_path,data[i]["mask_path"])).as_posix())
+        mask = cv2.imread(custom_train_dataparser_outputs.mask_filenames[-1], cv2.IMREAD_GRAYSCALE)
+        custom_train_dataparser_outputs.mask_midpt.append(get_mask_midpt(mask))
         if starting_pose is None:
             tf = np.asarray(data[i]["transform_matrix"])
         else:
@@ -192,3 +196,27 @@ def get_image(pipeline, pose):
     outputs = pipeline.model.get_outputs_for_camera(camera=camera)    
     return outputs
                                            
+def get_mask_midpt(mask):
+    """Get the mask mid point of a numpy mask.
+
+    Args:
+        mask: The mask.
+
+    Returns:
+        The mask mid point.
+    """
+    
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    # Check if any contours are found
+    if len(contours) > 0:
+        # Find the centroid of the largest contour
+        largest_contour = max(contours, key=cv2.contourArea)
+        M = cv2.moments(largest_contour)
+        
+        # Calculate the centroid coordinates
+        if M["m00"] != 0:
+            cx = int(M["m10"] / M["m00"])
+            cy = int(M["m01"] / M["m00"])
+            return cx, cy
+    return None
