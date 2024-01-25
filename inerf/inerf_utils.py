@@ -51,17 +51,15 @@ def get_corrected_pose(trainer):
         The corrected pose.
     """
 
-    camera = trainer.pipeline.datamanager.train_dataparser_outputs.cameras.camera_to_worlds
+    camera = trainer.pipeline.datamanager.train_dataparser_outputs.cameras.camera_to_worlds.to(trainer.pipeline.device)
 
-    correction = trainer.pipeline.model.camera_optimizer.forward([0]).detach()
-    camera = camera.to(correction.device)
+    correction = trainer.pipeline.model.camera_optimizer.forward([i for i in range(trainer.pipeline.datamanager.train_dataparser_outputs.cameras.camera_to_worlds.shape[0])]) #WARNING: We are only getting the first pose
 
     corrected_pose = correct_pose(camera, correction)
-    corrected_pose = corrected_pose.to("cpu")
 
     corrected_pose = transform_poses_to_original_space(
         corrected_pose,
-        trainer.pipeline.datamanager.train_dataparser_outputs.dataparser_transform,
+        trainer.pipeline.datamanager.train_dataparser_outputs.dataparser_transform.to(trainer.pipeline.device),
         trainer.pipeline.datamanager.train_dataparser_outputs.dataparser_scale,
         "opengl"
     )
@@ -106,6 +104,8 @@ def load_eval_image_into_pipeline(pipeline, eval_path, transform_file=None, star
         tf = tf[:3, :]
         camera_to_worlds = torch.cat([camera_to_worlds, tensor([tf]).float()], 0)   
     
+    custom_train_dataparser_outputs.mask_midpt = torch.tensor(custom_train_dataparser_outputs.mask_midpt).float()
+
     custom_cameras = pipeline.datamanager.train_dataparser_outputs.cameras
     custom_cameras.camera_to_worlds = transform_original_space_to_pose(camera_to_worlds,
                                                                         pipeline.datamanager.train_dataparser_outputs.dataparser_transform,
