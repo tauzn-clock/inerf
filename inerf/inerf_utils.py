@@ -104,7 +104,7 @@ def load_eval_image_into_pipeline(pipeline, eval_path, transform_file=None, star
         tf = tf[:3, :]
         camera_to_worlds = torch.cat([camera_to_worlds, tensor([tf]).float()], 0)   
     
-    custom_train_dataparser_outputs.mask_midpt = torch.tensor(custom_train_dataparser_outputs.mask_midpt).float()
+    custom_train_dataparser_outputs.mask_midpt = torch.tensor(custom_train_dataparser_outputs.mask_midpt).float().to(pipeline.device)
 
     custom_cameras = pipeline.datamanager.train_dataparser_outputs.cameras
     custom_cameras.camera_to_worlds = transform_original_space_to_pose(camera_to_worlds,
@@ -222,7 +222,18 @@ def get_mask_midpt(mask):
             return cx, cy
     return None
 
-def get_origin(pose, camera):
+def get_camera_intrinsic(camera):
+    intrinsic = torch.zeros((3,4))
+    
+    intrinsic[0,0] = camera.fx[0]
+    intrinsic[0,2] = camera.cx[0]
+    intrinsic[1,1] = camera.fy[0]
+    intrinsic[1,2] = camera.cy[0]
+    intrinsic[2,2] = 1
+
+    return intrinsic
+
+def get_origin(pose, intrinsic):
     """Get the pixel coordinate of a origin.
 
     Args:
@@ -232,33 +243,16 @@ def get_origin(pose, camera):
     Returns:
         The pixel coordinate of the orgin.
     """
-    transform = np.array(pose).reshape(4,4)
-    inv_transform = np.linalg.inv(transform)
+    transform = pose
+    inv_transform = torch.linalg.inv(transform.float())
 
     #Rotate about x axis by 180 degrees
-    rot = Rotation.from_euler('x', 180, degrees=True)
-    rot_matrix = rot.as_matrix()
-    rot_matrix = np.pad(rot_matrix, (0,1), 'constant')
-    rot_matrix[3,3] = 1
-    inv_transform = rot_matrix @ inv_transform
+    rot = torch.eye(4).to(pose.device)
+    rot[1,1] = -1
+    rot[2,2] = -1
+    inv_transform = torch.matmul(rot, inv_transform)
 
-
-    f = camera["focal_length"]
-    rho_w = camera["pixel_width"]
-    rho_h = camera["pixel_height"]
-    u_0 = camera["cx"]
-    v_0 = camera["cy"]
-
-    #Intrinsic matrix
-    intrinsic = [
-        [f/rho_w, 0, u_0, 0],
-        [0, f/rho_h, v_0, 0],
-        [0, 0, 1, 0]
-    ]
-    intrinsic = np.array(intrinsic)
-
-
-    plane_index = intrinsic @ inv_transform
-    plane_index = plane_index[:,3]
-    origin_coord = plane_index[:2]/plane_index[2]
+    plane_index = torch.matmul(intrinsic, inv_transform)
+    plane_index = plane_index[:,:,3]
+    origin_coord = plane_index[:,:2]/plane_index[:,2]
     return origin_coord

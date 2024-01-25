@@ -25,6 +25,7 @@ from rich.table import Table
 from torch.cuda.amp.grad_scaler import GradScaler
 
 from nerfstudio.engine.trainer import Trainer, TrainerConfig
+from inerf.inerf_utils import get_origin, get_corrected_pose, get_camera_intrinsic
 
 TRAIN_INTERATION_OUTPUT = Tuple[torch.Tensor, Dict[str, torch.Tensor], Dict[str, torch.Tensor]]
 TORCH_DEVICE = str
@@ -83,6 +84,7 @@ class INerfTrainer(Trainer):
             )
         )
         
+        self.camera_intrinsic = get_camera_intrinsic(self.pipeline.datamanager.train_dataparser_outputs.cameras).to(pipeline.device)
         
     def _load_checkpoint_inerf(self) -> None:
         """Helper function to load pipeline and optimizer from prespecified checkpoint"""
@@ -144,6 +146,25 @@ class INerfTrainer(Trainer):
         with torch.autocast(device_type=cpu_or_cuda_str, enabled=self.mixed_precision):
             _, loss_dict, metrics_dict = self.pipeline.get_train_loss_dict(step=step)
             loss = functools.reduce(torch.add, loss_dict.values())
+            mask_centre = self.pipeline.datamanager.train_dataparser_outputs.mask_midpt
+
+            corrected_pose = get_corrected_pose(self)
+            corrected_pose = torch.cat(
+                (
+                    corrected_pose,
+                    torch.tensor([[[0, 0, 0, 1]]], dtype=corrected_pose.dtype, device=corrected_pose.device).repeat_interleave(len(corrected_pose), 0),
+                ),
+                1,
+            )
+            expected_origin = get_origin(corrected_pose,self.camera_intrinsic)
+            
+            diff = torch.square(torch.norm(expected_origin - mask_centre))
+
+            loss = - metrics_dict["psnr"] + diff * 0.04
+            # loss_dup = {}
+            # loss_dup["rgb_loss"] = loss_dict["rgb_loss"]
+            # loss_dup["camera_opt_regularizer"] = loss_dict["camera_opt_regularizer"]
+            # loss = functools.reduce(torch.add, loss_dup.values())
         #print(loss, loss_dict, metrics_dict)
         self.grad_scaler.scale(loss).backward()  # type: ignore
 
