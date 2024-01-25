@@ -6,6 +6,7 @@ from pathlib import Path
 import os
 import json
 import cv2
+from scipy.spatial.transform import Rotation 
 from nerfstudio.data.dataparsers.base_dataparser import transform_poses_to_original_space
 from plane_nerf.plane_nerf_utils import transform_original_space_to_pose
 
@@ -220,3 +221,44 @@ def get_mask_midpt(mask):
             cy = int(M["m01"] / M["m00"])
             return cx, cy
     return None
+
+def get_origin(pose, camera):
+    """Get the pixel coordinate of a origin.
+
+    Args:
+        pose: The pose.
+        camera: Camera intrinsics
+
+    Returns:
+        The pixel coordinate of the orgin.
+    """
+    transform = np.array(pose).reshape(4,4)
+    inv_transform = np.linalg.inv(transform)
+
+    #Rotate about x axis by 180 degrees
+    rot = Rotation.from_euler('x', 180, degrees=True)
+    rot_matrix = rot.as_matrix()
+    rot_matrix = np.pad(rot_matrix, (0,1), 'constant')
+    rot_matrix[3,3] = 1
+    inv_transform = rot_matrix @ inv_transform
+
+
+    f = camera["focal_length"]
+    rho_w = camera["pixel_width"]
+    rho_h = camera["pixel_height"]
+    u_0 = camera["cx"]
+    v_0 = camera["cy"]
+
+    #Intrinsic matrix
+    intrinsic = [
+        [f/rho_w, 0, u_0, 0],
+        [0, f/rho_h, v_0, 0],
+        [0, 0, 1, 0]
+    ]
+    intrinsic = np.array(intrinsic)
+
+
+    plane_index = intrinsic @ inv_transform
+    plane_index = plane_index[:,3]
+    origin_coord = plane_index[:2]/plane_index[2]
+    return origin_coord
