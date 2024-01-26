@@ -9,6 +9,9 @@ import cv2
 from scipy.spatial.transform import Rotation 
 from nerfstudio.data.dataparsers.base_dataparser import transform_poses_to_original_space
 from plane_nerf.plane_nerf_utils import transform_original_space_to_pose
+from plane_nerf.plane_nerf_optimizer import PlaneNerfCameraOptimizer
+from nerfstudio.utils.eval_utils import eval_setup
+from nerfstudio.cameras.camera_optimizers import CameraOptimizer
 
 def correct_pose(given_pose, correction):
     """Correct the given pose by the correction.
@@ -66,14 +69,7 @@ def get_corrected_pose(trainer):
 
     return corrected_pose
 
-def load_eval_image_into_pipeline(pipeline, eval_path, transform_file=None, starting_pose=None):
-    
-    TRANSFORM_PATH = os.path.join(eval_path, "transforms.json")
-    if transform_file is not None:
-        TRANSFORM_PATH = os.path.join(eval_path, transform_file)
-    with open(TRANSFORM_PATH) as f:
-        transforms = json.load(f)
-
+def load_eval_image_into_pipeline(pipeline, eval_path, transforms, starting_pose=None):
     
     data = transforms["frames"]
         

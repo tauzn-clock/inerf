@@ -2,6 +2,7 @@ import dataclasses
 import functools
 import os
 import time
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from threading import Lock
@@ -25,7 +26,8 @@ from rich.table import Table
 from torch.cuda.amp.grad_scaler import GradScaler
 
 from nerfstudio.engine.trainer import Trainer, TrainerConfig
-from inerf.inerf_utils import get_origin, get_corrected_pose, get_camera_intrinsic
+from inerf.inerf_utils import get_corrected_pose, load_eval_image_into_pipeline, get_camera_intrinsic, get_origin
+from nerfstudio.cameras.camera_optimizers import CameraOptimizer
 
 TRAIN_INTERATION_OUTPUT = Tuple[torch.Tensor, Dict[str, torch.Tensor], Dict[str, torch.Tensor]]
 TORCH_DEVICE = str
@@ -160,7 +162,7 @@ class INerfTrainer(Trainer):
             
             diff = torch.square(torch.norm(expected_origin - mask_centre))
 
-            loss = - metrics_dict["psnr"] + diff * 0.04
+            loss = - metrics_dict["psnr"] + diff * 0.01
             # loss_dup = {}
             # loss_dup["rgb_loss"] = loss_dict["rgb_loss"]
             # loss_dup["camera_opt_regularizer"] = loss_dict["camera_opt_regularizer"]
@@ -181,3 +183,31 @@ class INerfTrainer(Trainer):
 
         #Merging loss and metrics dict into a single output.
         return loss, loss_dict, metrics_dict  # type: ignore
+    
+def load_data_into_trainer(
+    config,
+    pipeline,
+    plane_optimizer = True
+):
+
+    if plane_optimizer:
+        custom_camera_optimizer = PlaneNerfCameraOptimizer(
+            config = pipeline.model.camera_optimizer.config,
+            num_cameras = len(pipeline.datamanager.train_dataset),
+            device = pipeline.device,
+        )
+    else:
+        custom_camera_optimizer = CameraOptimizer(
+            config = pipeline.model.camera_optimizer.config,
+            num_cameras = len(pipeline.datamanager.train_dataset),
+            device = pipeline.device,
+        )
+        
+    custom_camera_optimizer.config.rot_l2_penalty = 0 #
+    custom_camera_optimizer.config.trans_l2_penalty = 0 #
+    pipeline.model.camera_optimizer = custom_camera_optimizer
+    trainer = INerfTrainer(config)
+    trainer.setup_inerf(pipeline)
+    
+    return trainer
+
