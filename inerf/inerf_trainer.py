@@ -162,7 +162,8 @@ class INerfTrainer(Trainer):
             
             diff = torch.square(torch.norm(expected_origin - mask_centre))
 
-            loss = - metrics_dict["psnr"] + diff * 0.01
+            loss = loss + diff * 1e-5
+            #loss = - metrics_dict["psnr"] + diff * 1e-5
             # loss_dup = {}
             # loss_dup["rgb_loss"] = loss_dict["rgb_loss"]
             # loss_dup["camera_opt_regularizer"] = loss_dict["camera_opt_regularizer"]

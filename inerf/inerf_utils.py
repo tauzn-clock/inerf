@@ -1,3 +1,6 @@
+from typing import Dict, Tuple, Literal
+from jaxtyping import Float 
+from torch import Tensor
 import torch
 from torch import tensor
 import numpy as np
@@ -8,10 +11,53 @@ import json
 import cv2
 from scipy.spatial.transform import Rotation 
 from nerfstudio.data.dataparsers.base_dataparser import transform_poses_to_original_space
-from plane_nerf.plane_nerf_utils import transform_original_space_to_pose
 from plane_nerf.plane_nerf_optimizer import PlaneNerfCameraOptimizer
 from nerfstudio.utils.eval_utils import eval_setup
 from nerfstudio.cameras.camera_optimizers import CameraOptimizer
+
+def transform_original_space_to_pose(
+    poses: Float[Tensor, "num_poses 3 4"],
+    applied_transform: Float[Tensor, "3 4"],
+    applied_scale: float,
+    camera_convention: Literal["opengl", "opencv"] = "opencv",
+) -> Float[Tensor, "num_poses 3 4"]:
+    """
+    Transforms the original world coordinate system to the poses in the transformed space.
+    Args:
+        poses: Poses in the transformed space
+        applied_transform: Transform matrix applied in the data processing step
+        applied_scale: Scale used in the data processing step
+        camera_convention: Camera system convention used for the transformed poses
+    Returns:
+        Original poses
+    """
+    output_poses = torch.cat(
+        (
+            poses,
+            torch.tensor([[[0, 0, 0, 1]]], dtype=poses.dtype, device=poses.device).repeat_interleave(len(poses), 0),
+        ),
+        1,
+    )
+    transform = torch.cat(
+        (
+            applied_transform,
+            torch.tensor([[0, 0, 0, 1]], dtype=applied_transform.dtype, device=applied_transform.device),
+        ),
+        0,
+    )
+        
+    output_poses = torch.einsum("ij,bjk->bik", transform, output_poses)
+    
+    output_poses[..., :3, 3] *= applied_scale
+    
+    if camera_convention == "opencv":
+        raise ValueError(f"Camera convention {camera_convention} not yet supported.")
+    elif camera_convention == "opengl":
+        pass
+    else:
+        raise ValueError(f"Camera convention {camera_convention} is not supported.")
+    return output_poses[:, :3]
+
 
 def correct_pose(given_pose, correction):
     """Correct the given pose by the correction.
@@ -252,3 +298,4 @@ def get_origin(pose, intrinsic):
     plane_index = plane_index[:,:,3]
     origin_coord = plane_index[:,:2]/plane_index[:,2]
     return origin_coord
+
