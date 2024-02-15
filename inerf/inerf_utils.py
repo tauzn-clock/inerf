@@ -219,12 +219,11 @@ def get_absolute_diff_for_pose(pose):
     Returns:
         The absolute difference for the pose.
     """
-
     translation = pose[:, :3, 3]
     rotation = pose[:, :3, :3]
     
     translation_diff = torch.norm(translation, dim=1)
-    
+
     trace = rotation.diagonal(offset=0, dim1=-1, dim2=-2).sum(-1)
     angle_rot = torch.acos((trace- 1) / 2)
 
@@ -232,10 +231,12 @@ def get_absolute_diff_for_pose(pose):
 
 def get_image(pipeline, pose):
     camera = pipeline.datamanager.train_dataparser_outputs.cameras
-    camera.camera = transform_original_space_to_pose(pose,
+    camera.camera_to_worlds = transform_original_space_to_pose(pose,
                                             pipeline.datamanager.train_dataparser_outputs.dataparser_transform.to(pipeline.device),
                                             pipeline.datamanager.train_dataparser_outputs.dataparser_scale,
-                                            "opengl")
+                                            "opengl").to("cpu")
+    #pipeline.datamanager.train_dataset = pipeline.datamanager.create_train_dataset()
+    pipeline.datamanager.setup_train()
     outputs = pipeline.model.get_outputs_for_camera(camera=camera)    
     return outputs
                                            
