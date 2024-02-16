@@ -29,6 +29,7 @@ from torchmetrics.regression import MeanSquaredError
 from nerfstudio.engine.trainer import Trainer, TrainerConfig
 from inerf.inerf_utils import get_corrected_pose, load_eval_image_into_pipeline, get_camera_intrinsic, get_origin
 from nerfstudio.cameras.camera_optimizers import CameraOptimizer
+from plane_nerf.plane_nerf_optimizer import PlaneNerfCameraOptimizer
 
 TRAIN_INTERATION_OUTPUT = Tuple[torch.Tensor, Dict[str, torch.Tensor], Dict[str, torch.Tensor]]
 TORCH_DEVICE = str
@@ -87,8 +88,6 @@ class INerfTrainer(Trainer):
             )
         )
 
-        self.torchmetric_mse = MeanSquaredError().to(self.pipeline.device)
-
         self.camera_intrinsic = get_camera_intrinsic(self.pipeline.datamanager.train_dataparser_outputs.cameras).to(pipeline.device)
         
     def _load_checkpoint_inerf(self) -> None:
@@ -132,6 +131,46 @@ class INerfTrainer(Trainer):
         else:
             CONSOLE.print("No Nerfstudio checkpoint to load, so training from scratch.")
 
+    def get_loss(self):
+        batch = self.pipeline.datamanager.inerf_batch
+        ray_bundle = self.pipeline.datamanager.train_ray_generator(batch["indices"])
+        model_outputs = self.pipeline.model.forward(ray_bundle=ray_bundle)
+        
+        #RGB Loss
+        gt_rgb = batch["image"].to(self.device)  # RGB or RGBA image
+        predicted_rgb = model_outputs["rgb"]
+
+        rgb_loss = torch.nn.L1Loss()(gt_rgb, predicted_rgb)
+
+        # #Pixel Loss
+        pixel_loss = 0
+        # mask_centre = self.pipeline.datamanager.train_dataparser_outputs.mask_midpt
+        # corrected_pose = get_corrected_pose(self)
+        # corrected_pose = torch.cat(
+        #     (
+        #         corrected_pose,
+        #         torch.tensor([[[0, 0, 0, 1]]], dtype=corrected_pose.dtype, device=corrected_pose.device).repeat_interleave(len(corrected_pose), 0),
+        #     ),
+        #     1,
+        # )
+        # expected_origin = get_origin(corrected_pose,self.camera_intrinsic)
+        # pixel_loss = torch.square(torch.norm(expected_origin - mask_centre)) 
+        # pixel_loss = torch.max(pixel_loss, torch.tensor([500], dtype=pixel_loss.dtype, device=pixel_loss.device))
+        # pixel_loss = pixel_loss * 1e-4
+        
+        loss = rgb_loss #+ pixel_loss
+
+        #Close pixels
+        #Iterate through pixels, count number of close pixels
+        close_pixels = 0
+        epsilon = 1/255 * 8
+        abs_diff = torch.abs(gt_rgb - predicted_rgb)
+        for i in range(len(abs_diff)):
+            if abs_diff[i][0] < epsilon and abs_diff[i][1] < epsilon and abs_diff[i][2] < epsilon:
+                close_pixels += 1
+
+        return {"rgb_loss": rgb_loss, "pixel_loss": pixel_loss, "loss": loss, "close_pixels": close_pixels}
+
     @profiler.time_function
     def train_iteration_inerf(self, step: int, optimizer_lr: Optional[Float] = None) -> TRAIN_INTERATION_OUTPUT:
         """Run one iteration with a batch of inputs. Returns dictionary of model losses.
@@ -150,35 +189,9 @@ class INerfTrainer(Trainer):
 
 
         with torch.autocast(device_type=cpu_or_cuda_str, enabled=self.mixed_precision):
-            batch = self.pipeline.datamanager.inerf_batch
-            ray_bundle = self.pipeline.datamanager.train_ray_generator(batch["indices"])
-            model_outputs = self.pipeline._model(ray_bundle)
-            
-            #RGB Loss
-            gt_rgb = batch["image"].to(self.device)  # RGB or RGBA image
-            gt_rgb = self.pipeline.model.renderer_rgb.blend_background(gt_rgb)  # Blend if RGBA
-            predicted_rgb = model_outputs["rgb"]
-            
-            rgb_loss = self.torchmetric_mse(gt_rgb, predicted_rgb)
-
-            #Pixel Loss
-            mask_centre = self.pipeline.datamanager.train_dataparser_outputs.mask_midpt
-            corrected_pose = get_corrected_pose(self)
-            corrected_pose = torch.cat(
-                (
-                    corrected_pose,
-                    torch.tensor([[[0, 0, 0, 1]]], dtype=corrected_pose.dtype, device=corrected_pose.device).repeat_interleave(len(corrected_pose), 0),
-                ),
-                1,
-            )
-            expected_origin = get_origin(corrected_pose,self.camera_intrinsic)
-            pixel_loss = torch.square(torch.norm(expected_origin - mask_centre)) 
-            #pixel_loss = torch.min(pixel_loss, torch.tensor([50], dtype=pixel_loss.dtype, device=pixel_loss.device))
-            pixel_loss = pixel_loss * 1e-5
-            
-            loss = rgb_loss + pixel_loss
-
-        self.grad_scaler.scale(loss).backward()  # type: ignore
+            loss = self.get_loss()
+    
+        self.grad_scaler.scale(loss["loss"]).backward()  # type: ignore
 
         needs_step = ["camera_opt"] #Updates only the camera optimizer
         if optimizer_lr is not None:
@@ -191,7 +204,7 @@ class INerfTrainer(Trainer):
         if scale <= self.grad_scaler.get_scale():
             self.optimizers.scheduler_step_all(step)
 
-        return {"rgb_loss": rgb_loss, "pixel_loss": pixel_loss, "loss": loss}
+        return loss
 def load_data_into_trainer(
     config,
     pipeline,
@@ -199,12 +212,14 @@ def load_data_into_trainer(
 ):
 
     if plane_optimizer:
+        print("Loading PlaneNerfCameraOptimizer")
         custom_camera_optimizer = PlaneNerfCameraOptimizer(
             config = pipeline.model.camera_optimizer.config,
             num_cameras = len(pipeline.datamanager.train_dataset),
             device = pipeline.device,
         )
     else:
+        print("Loading CameraOptimizer")
         custom_camera_optimizer = CameraOptimizer(
             config = pipeline.model.camera_optimizer.config,
             num_cameras = len(pipeline.datamanager.train_dataset),

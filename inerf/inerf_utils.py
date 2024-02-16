@@ -101,10 +101,21 @@ def get_corrected_pose(trainer):
     """
 
     camera = trainer.pipeline.datamanager.train_dataparser_outputs.cameras.camera_to_worlds.to(trainer.pipeline.device)
+    #print("camera", camera)
 
-    correction = trainer.pipeline.model.camera_optimizer.forward([i for i in range(trainer.pipeline.datamanager.train_dataparser_outputs.cameras.camera_to_worlds.shape[0])]) #WARNING: We are only getting the first pose
+    correction = trainer.pipeline.model.camera_optimizer.get_correction_matrices()
 
-    corrected_pose = correct_pose(camera, correction)
+    R = correction[:, :3, :3]
+    t = correction[:, :3, 3]
+
+    corrected_trans = camera[:, :3, 3] + t
+    corrected_trans = corrected_trans.reshape(-1, 3, 1)
+    #print(corrected_trans)
+
+    corrected_rot = torch.bmm(R, camera[:, :3, :3])
+    #print(corrected_rot)
+
+    corrected_pose = torch.cat((corrected_rot, corrected_trans), 2)
 
     corrected_pose = transform_poses_to_original_space(
         corrected_pose,
@@ -236,7 +247,7 @@ def get_image(pipeline, pose):
                                             pipeline.datamanager.train_dataparser_outputs.dataparser_scale,
                                             "opengl").to("cpu")
     #pipeline.datamanager.train_dataset = pipeline.datamanager.create_train_dataset()
-    pipeline.datamanager.setup_train()
+    #pipeline.datamanager.setup_train()
     outputs = pipeline.model.get_outputs_for_camera(camera=camera)    
     return outputs
                                            
@@ -281,10 +292,7 @@ def get_origin(pose, intrinsic):
 
     Args:
         pose: The pose.
-        camera: Camera intrinsics
-
-    Returns:
-        The pixel coordinate of the orgin.
+        camera: Camera intrinsicsalpha = 0.5
     """
     transform = pose
     inv_transform = torch.linalg.inv(transform.float())
