@@ -138,12 +138,10 @@ class INerfTrainer(Trainer):
         
         #RGB Loss
         gt_rgb = batch["image"].to(self.device)  # RGB or RGBA image
-        #TODO:
-        gt_rgb = gt_rgb[:, :3]  # Remove alpha channel if present
         predicted_rgb = model_outputs["rgb"]
 
-        
-        rgb_loss = torch.nn.L1Loss()(gt_rgb, predicted_rgb)
+        #rgb_loss = torch.nn.L1Loss()(gt_rgb, predicted_rgb)
+        rgb_loss = MeanSquaredError().to(self.pipeline.device)(gt_rgb, predicted_rgb)
 
         # #Pixel Loss
         pixel_loss = 0
@@ -166,11 +164,11 @@ class INerfTrainer(Trainer):
         #Close pixels
         #Iterate through pixels, count number of close pixels
         close_pixels = 0
-        epsilon = 1/255 * 8
-        abs_diff = torch.abs(gt_rgb - predicted_rgb)
-        for i in range(len(abs_diff)):
-            if abs_diff[i][0] < epsilon and abs_diff[i][1] < epsilon and abs_diff[i][2] < epsilon:
-                close_pixels += 1
+        # epsilon = 1/255 * 8
+        # abs_diff = torch.abs(gt_rgb - predicted_rgb)
+        # for i in range(len(abs_diff)):
+        #     if abs_diff[i][0] < epsilon and abs_diff[i][1] < epsilon and abs_diff[i][2] < epsilon:
+        #         close_pixels += 1
 
         return {"rgb_loss": rgb_loss, "pixel_loss": pixel_loss, "loss": loss, "close_pixels": close_pixels}
 
