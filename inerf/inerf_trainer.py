@@ -138,8 +138,11 @@ class INerfTrainer(Trainer):
         
         #RGB Loss
         gt_rgb = batch["image"].to(self.device)  # RGB or RGBA image
+        #TODO:
+        gt_rgb = gt_rgb[:, :3]  # Remove alpha channel if present
         predicted_rgb = model_outputs["rgb"]
 
+        
         rgb_loss = torch.nn.L1Loss()(gt_rgb, predicted_rgb)
 
         # #Pixel Loss
