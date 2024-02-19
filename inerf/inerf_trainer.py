@@ -66,28 +66,11 @@ class INerfTrainer(Trainer):
                 'test': loads train/test datasets into memory
                 'inference': does not load any dataset into memory
         """
-        # self.pipeline = self.config.pipeline.setup(
-        #     device=self.device,
-        #     test_mode=test_mode,
-        #     world_size=self.world_size,
-        #     local_rank=self.local_rank,
-        #     grad_scaler=self.grad_scaler,
-        # )
-        # print(self.pipeline)
         
         self.pipeline = pipeline
         self.optimizers = self.setup_optimizers()
 
         self._load_checkpoint_inerf()
-
-        self.callbacks = self.pipeline.get_training_callbacks(
-            TrainingCallbackAttributes(
-                optimizers=self.optimizers,
-                grad_scaler=self.grad_scaler,
-                pipeline=self.pipeline,
-            )
-        )
-
         self.camera_intrinsic = get_camera_intrinsic(self.pipeline.datamanager.train_dataparser_outputs.cameras).to(pipeline.device)
         
     def _load_checkpoint_inerf(self) -> None:
@@ -144,7 +127,7 @@ class INerfTrainer(Trainer):
         rgb_loss = MeanSquaredError().to(self.pipeline.device)(gt_rgb, predicted_rgb)
 
         # #Pixel Loss
-        pixel_loss = 0
+        #pixel_loss = 0
         # mask_centre = self.pipeline.datamanager.train_dataparser_outputs.mask_midpt
         # corrected_pose = get_corrected_pose(self)
         # corrected_pose = torch.cat(
@@ -159,18 +142,18 @@ class INerfTrainer(Trainer):
         # pixel_loss = torch.max(pixel_loss, torch.tensor([500], dtype=pixel_loss.dtype, device=pixel_loss.device))
         # pixel_loss = pixel_loss * 1e-4
         
-        loss = rgb_loss #+ pixel_loss
+        #loss = rgb_loss #+ pixel_loss
 
         #Close pixels
         #Iterate through pixels, count number of close pixels
-        close_pixels = 0
+        #close_pixels = 0
         # epsilon = 1/255 * 8
         # abs_diff = torch.abs(gt_rgb - predicted_rgb)
         # for i in range(len(abs_diff)):
         #     if abs_diff[i][0] < epsilon and abs_diff[i][1] < epsilon and abs_diff[i][2] < epsilon:
         #         close_pixels += 1
 
-        return {"rgb_loss": rgb_loss, "pixel_loss": pixel_loss, "loss": loss, "close_pixels": close_pixels}
+        return {"loss": rgb_loss}
 
     @profiler.time_function
     def train_iteration_inerf(self, step: int, optimizer_lr: Optional[Float] = None) -> TRAIN_INTERATION_OUTPUT:
@@ -185,12 +168,10 @@ class INerfTrainer(Trainer):
         needs_zero = ["camera_opt"] #Updates only the camera optimizer
         self.optimizers.zero_grad_some(needs_zero)
 
-        cpu_or_cuda_str: str = self.device.split(":")[0]
-        cpu_or_cuda_str = "cpu" if cpu_or_cuda_str == "mps" else cpu_or_cuda_str
-
-
-        with torch.autocast(device_type=cpu_or_cuda_str, enabled=self.mixed_precision):
-            loss = self.get_loss()
+        #cpu_or_cuda_str: str = self.device.split(":")[0]
+        #cpu_or_cuda_str = "cpu" if cpu_or_cuda_str == "mps" else cpu_or_cuda_str
+        #with torch.autocast(device_type=cpu_or_cuda_str, enabled=self.mixed_precision):
+        loss = self.get_loss()
     
         self.grad_scaler.scale(loss["loss"]).backward()  # type: ignore
 
@@ -201,9 +182,9 @@ class INerfTrainer(Trainer):
 
         scale = self.grad_scaler.get_scale()
         self.grad_scaler.update()
-        # If the gradient scaler is decreased, no optimization step is performed so we should not step the scheduler.
-        if scale <= self.grad_scaler.get_scale():
-            self.optimizers.scheduler_step_all(step)
+        # # If the gradient scaler is decreased, no optimization step is performed so we should not step the scheduler.
+        # if scale <= self.grad_scaler.get_scale():
+        #     self.optimizers.scheduler_step_all(step)
 
         return loss
 def load_data_into_trainer(
