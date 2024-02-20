@@ -72,6 +72,8 @@ class INerfTrainer(Trainer):
 
         self._load_checkpoint_inerf()
         self.camera_intrinsic = get_camera_intrinsic(self.pipeline.datamanager.train_dataparser_outputs.cameras).to(pipeline.device)
+        self.rgb_loss_func = MeanSquaredError().to(pipeline.device)
+        #self.rgb_loss_func = torch.nn.L1Loss().to(pipeline.device)
         
     def _load_checkpoint_inerf(self) -> None:
         """Helper function to load pipeline and optimizer from prespecified checkpoint"""
@@ -116,18 +118,13 @@ class INerfTrainer(Trainer):
 
     def get_loss(self):
         batch = self.pipeline.datamanager.inerf_batch
+        gt_rgb = batch["image"]  # RGB or RGBA image
         ray_bundle = self.pipeline.datamanager.train_ray_generator(batch["indices"])
-        model_outputs = self.pipeline.model.forward(ray_bundle=ray_bundle)
+        predicted_rgb = self.pipeline.model.get_rgb_outputs(ray_bundle=ray_bundle)
         
-        #RGB Loss
-        gt_rgb = batch["image"].to(self.device)  # RGB or RGBA image
-        predicted_rgb = model_outputs["rgb"]
+        rgb_loss = self.rgb_loss_func(gt_rgb, predicted_rgb)
 
-        #rgb_loss = torch.nn.L1Loss()(gt_rgb, predicted_rgb)
-        rgb_loss = MeanSquaredError().to(self.pipeline.device)(gt_rgb, predicted_rgb)
-
-        # #Pixel Loss
-        #pixel_loss = 0
+        #Pixel Loss
         # mask_centre = self.pipeline.datamanager.train_dataparser_outputs.mask_midpt
         # corrected_pose = get_corrected_pose(self)
         # corrected_pose = torch.cat(
@@ -139,7 +136,7 @@ class INerfTrainer(Trainer):
         # )
         # expected_origin = get_origin(corrected_pose,self.camera_intrinsic)
         # pixel_loss = torch.square(torch.norm(expected_origin - mask_centre)) 
-        # pixel_loss = torch.max(pixel_loss, torch.tensor([500], dtype=pixel_loss.dtype, device=pixel_loss.device))
+        # pixel_loss = torch.max(pixel_loss, torch.tensor([200], dtype=pixel_loss.dtype, device=pixel_loss.device))
         # pixel_loss = pixel_loss * 1e-4
         
         #loss = rgb_loss #+ pixel_loss
@@ -156,29 +153,24 @@ class INerfTrainer(Trainer):
         return {"loss": rgb_loss}
 
     @profiler.time_function
-    def train_iteration_inerf(self, step: int, optimizer_lr: Optional[Float] = None) -> TRAIN_INTERATION_OUTPUT:
+    def train_iteration_inerf(self, optimizer_lr: Optional[Float] = None) -> TRAIN_INTERATION_OUTPUT:
         """Run one iteration with a batch of inputs. Returns dictionary of model losses.
 
         Args:
             step: Current training step.
         """
 
-        self.pipeline.train()
-        
-        needs_zero = ["camera_opt"] #Updates only the camera optimizer
-        self.optimizers.zero_grad_some(needs_zero)
+        self.optimizers.zero_grad_some(["camera_opt"])
 
         #cpu_or_cuda_str: str = self.device.split(":")[0]
         #cpu_or_cuda_str = "cpu" if cpu_or_cuda_str == "mps" else cpu_or_cuda_str
         #with torch.autocast(device_type=cpu_or_cuda_str, enabled=self.mixed_precision):
         loss = self.get_loss()
-    
         self.grad_scaler.scale(loss["loss"]).backward()  # type: ignore
 
-        needs_step = ["camera_opt"] #Updates only the camera optimizer
         if optimizer_lr is not None:
             self.optimizers.optimizers["camera_opt"].param_groups[0]['lr'] = optimizer_lr
-        self.optimizers.optimizer_scaler_step_some(self.grad_scaler, needs_step)
+        self.optimizers.optimizer_scaler_step_some(self.grad_scaler, ["camera_opt"])
 
         scale = self.grad_scaler.get_scale()
         self.grad_scaler.update()
