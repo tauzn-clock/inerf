@@ -308,3 +308,49 @@ def get_origin(pose, intrinsic):
     origin_coord = plane_index[:,:2]/plane_index[:,2]
     return origin_coord
 
+def inerf(trainer, ITERATION = 1000, LR = 1e-3, GROUND_TRUTH_TRANSFORM_FILE=None):
+    trainer.pipeline.datamanager.get_inerf_batch()  
+    trainer.pipeline.datamanager.inerf_batch["image"] = trainer.pipeline.datamanager.inerf_batch["image"].to(trainer.pipeline.device)
+    trainer.pipeline.train()
+
+    if GROUND_TRUTH_TRANSFORM_FILE is not None:
+        with open(GROUND_TRUTH_TRANSFORM_FILE) as f:
+            ground_truth_transform = json.load(f)
+        ground_truth_poses = []
+        tf = ground_truth_transform["frames"][0]["transform_matrix"]
+        tf = np.asarray(tf)
+        tf = tf[:3, :4 ]
+        ground_truth_poses.append(tf)
+        ground_truth_poses = torch.tensor(ground_truth_poses).to(trainer.pipeline.device)
+        store = torch.tensor([])
+        corrected_pose = get_corrected_pose(trainer)
+        relative_pose = get_relative_pose(ground_truth_poses, corrected_pose)
+        t_diff, r_diff = get_absolute_diff_for_pose(relative_pose)
+        #Get averrage absolute translation and rotation error
+        print("Average translation error: ", torch.mean(t_diff))
+        print("Average rotation error: ", torch.mean(r_diff))
+        store = torch.cat((store, torch.tensor([[0, torch.mean(t_diff), torch.mean(r_diff)]])), 0)
+
+    for i in range(ITERATION):
+        loss = trainer.train_iteration_inerf(optimizer_lr = LR)
+        if (GROUND_TRUTH_TRANSFORM_FILE is not None):
+            corrected_pose = get_corrected_pose(trainer)
+            relative_pose = get_relative_pose(ground_truth_poses, corrected_pose)
+            t_diff, r_diff = get_absolute_diff_for_pose(relative_pose)
+            store = torch.cat((store, torch.tensor([[i+1, torch.mean(t_diff), torch.mean(r_diff)]])), 0)
+            #Get averrage absolute translation and rotation error
+            print("Average translation error: ", torch.mean(t_diff))
+            print("Average rotation error: ", torch.mean(r_diff))
+            print(loss)
+    
+    corrected_pose = get_corrected_pose(trainer)
+    ans = {}
+    ans["corrected_pose"] = corrected_pose
+    ans["loss"] = loss
+    if (GROUND_TRUTH_TRANSFORM_FILE is not None):
+        ans["store"] = store
+        ans["relative_pose"] = relative_pose
+        ans["translation_diff"] = torch.mean(t_diff)
+        ans["rotation_diff"] = torch.mean(r_diff)
+    
+    return ans
